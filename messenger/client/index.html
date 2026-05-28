@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<!-- Запрет масштабирования на мобильных; interactive-widget=resizes-content —
+     при открытии клавиатуры на iOS/Android контент сжимается, а не перекрывается -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+<title>Messenger</title>
+<style>
+  /* Сброс браузерных отступов и рамок для всех элементов */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* Общие стили страницы: тёмный фон, светлый текст, flex-колонка на весь экран */
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── AUTH ─────────────────────────────── */
+  /* Экран авторизации — центрирует содержимое по вертикали и горизонтали */
+  #auth-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+  }
+  /* Карточка с формой входа/регистрации */
+  .auth-box {
+    background: #16213e;
+    border-radius: 12px;
+    padding: 40px;
+    width: 360px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .auth-box h1 { text-align: center; font-size: 1.6rem; margin-bottom: 8px; color: #e0e0e0; }
+  .auth-box .subtitle { text-align: center; font-size: 0.85rem; color: #888; margin-bottom: 28px; }
+  /* Поля ввода имени и пароля */
+  .auth-box input {
+    width: 100%; padding: 12px 14px; border-radius: 8px;
+    border: 1px solid #2a2a4a; background: #0f3460; color: #e0e0e0;
+    font-size: 0.95rem; margin-bottom: 12px; outline: none; transition: border-color 0.2s;
+  }
+  /* Подсветка активного поля ввода */
+  .auth-box input:focus { border-color: #4f8ef7; }
+  /* Ряд с кнопками «Войти» и «Регистрация» */
+  .btn-row { display: flex; gap: 10px; margin-top: 4px; }
+  .btn {
+    flex: 1; padding: 12px; border: none; border-radius: 8px;
+    font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn-primary { background: #4f8ef7; color: #fff; }    /* синяя кнопка */
+  .btn-secondary { background: #2a2a4a; color: #ccc; }  /* тёмная кнопка */
+  /* Блок ошибки авторизации — изначально скрыт, показывается при auth_fail */
+  #auth-error {
+    margin-top: 12px; padding: 10px 14px; border-radius: 8px;
+    background: #3a1a1a; color: #f87171; font-size: 0.85rem; display: none;
+  }
+
+  /* ── MAIN LAYOUT ──────────────────────── */
+  /* Главный экран чата: скрыт до авторизации, затем flex-строка */
+  #chat-screen { display: none; flex: 1; flex-direction: row; height: 100vh; overflow: hidden; }
+
+  /* ── Боковая панель (sidebar) ── */
+  #sidebar {
+    width: 260px; background: #16213e; display: flex; flex-direction: column;
+    border-right: 1px solid #2a2a4a; flex-shrink: 0;
+  }
+  /* Шапка сайдбара: имя пользователя + кнопка выхода */
+  #sidebar-header {
+    padding: 16px; border-bottom: 1px solid #2a2a4a;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  /* Имя текущего пользователя (отображается после входа) */
+  #my-name { font-weight: 700; font-size: 1rem; color: #4f8ef7; }
+  #logout-btn {
+    background: none; border: none; color: #888; cursor: pointer;
+    font-size: 0.8rem; padding: 4px 8px; border-radius: 6px; transition: background 0.15s;
+  }
+  #logout-btn:hover { background: #2a2a4a; color: #ccc; }
+
+  /* Заголовки секций сайдбара («Пользователи», «Группы») */
+  .sidebar-section-header {
+    padding: 10px 16px 4px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #555;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  /* Кнопка «+» для создания новой группы */
+  .sidebar-section-header button {
+    background: none; border: none; color: #4f8ef7; cursor: pointer;
+    font-size: 1.1rem; line-height: 1; padding: 0 2px; border-radius: 4px;
+    transition: background 0.15s;
+  }
+  .sidebar-section-header button:hover { background: #2a2a4a; }
+
+  /* Прокручиваемая область со списками пользователей и групп */
+  #sidebar-scroll { flex: 1; overflow-y: auto; padding: 4px 8px; }
+
+  /* Один элемент списка (пользователь или группа) */
+  .list-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; border-radius: 8px; cursor: pointer; transition: background 0.15s;
+  }
+  .list-item:hover  { background: #1e2d50; }   /* подсветка при наведении */
+  .list-item.active { background: #0f3460; }   /* активный (открытый) чат */
+
+  /* Круглый аватар с первой буквой имени */
+  .avatar {
+    width: 36px; height: 36px; border-radius: 50%; background: #4f8ef7;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 0.9rem; color: #fff; flex-shrink: 0; position: relative;
+  }
+  /* Аватар группы — скруглённый квадрат вместо круга */
+  .avatar.group-avatar { background: #7c3aed; border-radius: 10px; }
+
+  /* Зелёная точка онлайн-статуса поверх аватара */
+  .online-dot {
+    position: absolute; bottom: 1px; right: 1px;
+    width: 10px; height: 10px; background: #34d399;
+    border-radius: 50%; border: 2px solid #16213e;
+  }
+  /* Серая точка — пользователь офлайн */
+  .offline-dot {
+    position: absolute; bottom: 1px; right: 1px;
+    width: 10px; height: 10px; background: #555;
+    border-radius: 50%; border: 2px solid #16213e;
+  }
+  /* Имя пользователя/группы в списке (обрезается при переполнении) */
+  .item-name { font-size: 0.9rem; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Бейдж с числом непрочитанных сообщений */
+  .unread-badge {
+    margin-left: auto; background: #4f8ef7; color: #fff;
+    font-size: 0.7rem; font-weight: 700; min-width: 18px; height: 18px;
+    border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    padding: 0 5px; flex-shrink: 0;
+  }
+
+  /* Строка статуса соединения внизу сайдбара */
+  #status-bar { padding: 10px 16px; font-size: 0.78rem; color: #555; border-top: 1px solid #2a2a4a; }
+  .status-online { color: #34d399; }  /* зелёный цвет при активном соединении */
+
+  /* ── Область чата (правая часть) ── */
+  #chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  /* Шапка чата: имя собеседника/группы + подсказка об участниках */
+  #chat-header {
+    padding: 14px 20px; background: #16213e; border-bottom: 1px solid #2a2a4a;
+    font-weight: 600; font-size: 0.95rem; display: flex; align-items: center; gap: 10px;
+  }
+  #chat-header .header-sub { font-weight: 400; color: #666; font-size: 0.8rem; margin-top: 2px; }
+
+  /* Прокручиваемая лента сообщений */
+  #messages {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  /* Обёртка одного сообщения: выравнивается вправо (моё) или влево (чужое) */
+  .msg { display: flex; flex-direction: column; max-width: 65%; }
+  .msg.mine   { align-self: flex-end; align-items: flex-end; }
+  .msg.theirs { align-self: flex-start; }
+  /* Пузырёк с текстом сообщения */
+  .msg-bubble {
+    padding: 9px 14px; border-radius: 14px; font-size: 0.9rem;
+    line-height: 1.45; word-break: break-word;
+  }
+  /* Исходящее сообщение — синий, срезан нижний правый угол */
+  .msg.mine   .msg-bubble { background: #4f8ef7; color: #fff; border-bottom-right-radius: 4px; }
+  /* Входящее сообщение — тёмный, срезан нижний левый угол */
+  .msg.theirs .msg-bubble { background: #1e2d50; color: #e0e0e0; border-bottom-left-radius: 4px; }
+  /* Метаданные: имя + время под пузырьком */
+  .msg-meta { font-size: 0.72rem; color: #555; margin-top: 3px; padding: 0 4px; }
+  /* Имя отправителя в групповом чате (только над чужими сообщениями) */
+  .msg-sender { font-size: 0.75rem; color: #4f8ef7; margin-bottom: 2px; padding: 0 4px; }
+
+  /* Системное уведомление (например, «alice вошёл в чат») */
+  .notice {
+    align-self: center; font-size: 0.78rem; color: #556;
+    background: #1a1a2e; padding: 4px 12px; border-radius: 12px; border: 1px solid #2a2a3a;
+  }
+
+  /* Панель ввода сообщения внизу чата */
+  #input-area {
+    padding: 12px 16px; background: #16213e; border-top: 1px solid #2a2a4a;
+    display: flex; gap: 10px; align-items: flex-end;
+  }
+  /* Многострочное поле ввода (растёт до 120px по высоте) */
+  #input-area textarea {
+    flex: 1; background: #0f3460; border: 1px solid #2a2a4a; border-radius: 10px;
+    color: #e0e0e0; font-size: 0.9rem; padding: 10px 14px; outline: none;
+    resize: none; max-height: 120px; font-family: inherit; line-height: 1.4;
+    transition: border-color 0.2s;
+  }
+  #input-area textarea:focus  { border-color: #4f8ef7; }
+  /* Поле заблокировано, пока не выбран чат */
+  #input-area textarea:disabled { opacity: 0.4; }
+  /* Кнопка отправки сообщения */
+  #send-btn {
+    background: #4f8ef7; border: none; border-radius: 10px; color: #fff;
+    width: 44px; height: 44px; cursor: pointer; font-size: 1.2rem;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: opacity 0.15s;
+  }
+  #send-btn:hover { opacity: 0.85; }
+  #send-btn:disabled { opacity: 0.3; cursor: default; }
+
+  /* ── МОДАЛКА СОЗДАНИЯ ГРУППЫ ─────────── */
+  /* Затемнённый оверлей поверх всего интерфейса */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-overlay.hidden { display: none; }  /* скрыта по умолчанию */
+  /* Карточка модального окна */
+  .modal {
+    background: #16213e; border-radius: 12px; padding: 28px;
+    width: 360px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+  .modal h2 { font-size: 1.1rem; margin-bottom: 16px; }
+  .modal input {
+    width: 100%; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid #2a2a4a; background: #0f3460; color: #e0e0e0;
+    font-size: 0.9rem; margin-bottom: 12px; outline: none;
+  }
+  .modal input:focus { border-color: #4f8ef7; }
+  .modal label { font-size: 0.8rem; color: #888; display: block; margin-bottom: 6px; }
+  /* Прокручиваемый список участников с чекбоксами */
+  .members-list {
+    max-height: 180px; overflow-y: auto; margin-bottom: 14px;
+    border: 1px solid #2a2a4a; border-radius: 8px; padding: 4px;
+  }
+  /* Строка с чекбоксом для одного участника */
+  .member-check {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; border-radius: 6px; cursor: pointer; transition: background 0.15s;
+  }
+  .member-check:hover { background: #1e2d50; }
+  .member-check input[type=checkbox] { accent-color: #4f8ef7; width: 16px; height: 16px; }
+  /* Кнопки «Создать» и «Отмена» в модалке */
+  .modal-btns { display: flex; gap: 10px; margin-top: 4px; }
+
+  /* Подсказка со списком участников в шапке группового чата */
+  #group-members-hint { font-size: 0.78rem; color: #555; }
+
+  /* ── КНОПКА НАЗАД (только мобайл) ───── */
+  /* Скрыта на десктопе, показывается через медиа-запрос */
+  #back-btn {
+    display: none;
+    background: none; border: none; color: #4f8ef7;
+    font-size: 1.4rem; cursor: pointer; padding: 0 6px 0 0;
+    line-height: 1; flex-shrink: 0;
+  }
+
+  /* ── МОБИЛЬНАЯ АДАПТАЦИЯ ─────────────── */
+  @media (max-width: 600px) {
+    /* На мобильных форма входа занимает весь экран без скругления */
+    .auth-box {
+      width: 100%; border-radius: 0;
+      padding: 32px 24px;
+      box-shadow: none;
+    }
+    #auth-screen { align-items: flex-start; padding-top: 60px; }
+
+    /* Фиксируем чат-экран на весь экран, не даём уехать при открытии клавиатуры */
+    #chat-screen {
+      position: fixed; inset: 0;
+      overflow: hidden;
+    }
+
+    /* Сайдбар занимает весь экран и выезжает/прячется CSS-трансформом */
+    #sidebar {
+      position: absolute; inset: 0;
+      width: 100%; z-index: 10;
+      transform: translateX(0);
+      transition: transform 0.25s ease;
+    }
+    /* Класс добавляется при открытии чата — сайдбар уезжает влево */
+    #sidebar.hidden-mobile {
+      transform: translateX(-100%);
+    }
+
+    /* Область чата на мобильном изначально сдвинута вправо за экран */
+    #chat-area {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.25s ease;
+      height: 100%;
+    }
+    /* При открытии чата — область въезжает на экран */
+    #chat-area.visible-mobile {
+      transform: translateX(0);
+    }
+
+    /* Заголовок с кнопкой «Назад» — всегда виден вверху */
+    #chat-header {
+      flex-shrink: 0;
+    }
+
+    /* Сообщения занимают всё свободное место между хедером и полем ввода */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch; /* плавный скролл на iOS */
+      min-height: 0;
+    }
+
+    /* Поле ввода — всегда прибито к низу */
+    #input-area {
+      flex-shrink: 0;
+    }
+
+    /* Кнопка «Назад» видна только на мобильных */
+    #back-btn { display: block; }
+
+    /* Сообщения шире на узком экране */
+    .msg { max-width: 82%; }
+
+    /* Модалка на всю ширину с небольшими отступами */
+    .modal {
+      width: calc(100% - 32px);
+      margin: 0 16px;
+    }
+
+    /* Textarea на iOS — минимум 16px, иначе браузер масштабирует страницу */
+    #input-area textarea { font-size: 1rem; }
+
+    /* Увеличиваем зоны нажатия для пальцев */
+    .list-item { padding: 12px 10px; }
+    #send-btn { width: 48px; height: 48px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── AUTH ─────────────────────────────────────── -->
+<!-- Экран входа/регистрации, показывается первым -->
+<div id="auth-screen">
+  <div class="auth-box">
+    <h1>💬 Messenger</h1>
+    <p class="subtitle">Войдите или создайте аккаунт</p>
+    <input id="username" type="text" placeholder="Имя пользователя" autocomplete="off">
+    <input id="password" type="password" placeholder="Пароль">
+    <div class="btn-row">
+      <button class="btn btn-primary"   onclick="doLogin()">Войти</button>
+      <button class="btn btn-secondary" onclick="doRegister()">Регистрация</button>
+    </div>
+    <!-- Блок ошибки: скрыт, появляется при неверном логине/пароле -->
+    <div id="auth-error"></div>
+  </div>
+</div>
+
+<!-- ── CHAT ──────────────────────────────────────── -->
+<!-- Главный экран мессенджера, скрыт до авторизации -->
+<div id="chat-screen">
+  <!-- Левая панель: список пользователей и групп -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <span id="my-name"></span>  <!-- Имя залогиненного пользователя -->
+      <button id="logout-btn" onclick="doLogout()">Выйти</button>
+    </div>
+
+    <div id="sidebar-scroll">
+      <!-- Секция «Пользователи» -->
+      <div class="sidebar-section-header">
+        <span>Пользователи</span>
+      </div>
+      <div id="users-list"></div>  <!-- Заполняется через renderUserList() -->
+
+      <!-- Секция «Группы» с кнопкой создания -->
+      <div class="sidebar-section-header" style="margin-top:8px">
+        <span>Группы</span>
+        <button onclick="openCreateGroup()" title="Создать группу">＋</button>
+      </div>
+      <div id="groups-list"></div>  <!-- Заполняется через renderGroupList() -->
+    </div>
+
+    <!-- Статус WebSocket-соединения -->
+    <div id="status-bar">Подключение…</div>
+  </div>
+
+  <!-- Правая часть: область переписки -->
+  <div id="chat-area">
+    <div id="chat-header">
+      <!-- Кнопка «Назад» — видна только на мобильных устройствах -->
+      <button id="back-btn" onclick="goBackToSidebar()" title="Назад">‹</button>
+      <div>
+        <div id="chat-with-name">Выберите собеседника</div>
+        <!-- Для групп: количество участников и их имена -->
+        <div id="group-members-hint" class="header-sub"></div>
+      </div>
+    </div>
+
+    <!-- Лента сообщений; заглушка показывается, пока чат не выбран -->
+    <div id="messages">
+      <div id="empty-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#444;font-size:0.9rem;gap:10px">
+        <div style="font-size:3rem">💬</div>
+        <div>Выберите пользователя или группу слева</div>
+      </div>
+    </div>
+
+    <!-- Поле ввода и кнопка отправки; заблокированы до выбора чата -->
+    <div id="input-area">
+      <textarea id="msg-input" placeholder="Введите сообщение…" rows="1"
+        disabled onkeydown="onInputKey(event)"></textarea>
+      <button id="send-btn" onclick="sendMessage()" disabled>➤</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── МОДАЛКА СОЗДАНИЯ ГРУППЫ ───────────────────── -->
+<!-- Оверлей скрыт по умолчанию (класс hidden), открывается через openCreateGroup() -->
+<div id="modal-create-group" class="modal-overlay hidden">
+  <div class="modal">
+    <h2>Новая группа</h2>
+    <input id="group-name-input" type="text" placeholder="Название группы" maxlength="64">
+    <label>Участники (выберите хотя бы одного):</label>
+    <!-- Список чекбоксов динамически заполняется из allUsers -->
+    <div class="members-list" id="members-checkboxes"></div>
+    <!-- Сообщение об ошибке валидации внутри модалки -->
+    <div id="modal-error" style="color:#f87171;font-size:0.82rem;min-height:18px;margin-bottom:8px"></div>
+    <div class="modal-btns">
+      <button class="btn btn-primary"   onclick="submitCreateGroup()">Создать</button>
+      <button class="btn btn-secondary" onclick="closeCreateGroup()">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Глобальное состояние ──────────────────────────────
+let ws            = null;       // текущий объект WebSocket
+let wsConnected   = false;      // флаг активного соединения
+let myName        = '';         // имя залогиненного пользователя
+let chatWith      = null;       // username открытого личного чата (null если групповой)
+let chatGroupId   = null;       // id открытой группы (null если личный чат)
+let historyLoaded = false;      // загружена ли история текущего чата
+
+let messages      = {};         // messages[username] = [{from, text, ts}, ...]
+let pendingMessages = {};       // сообщения, пришедшие до загрузки истории
+let groupMessages  = {};        // groupMessages[group_id] = [{from, text, ts}, ...]
+let pendingGroupMessages = {};  // групповые сообщения до загрузки истории
+
+let unread        = {};         // unread[username] = число непрочитанных
+let groupUnread   = {};         // groupUnread[group_id] = число непрочитанных
+
+let groups        = {};         // groups[id] = {id, name, created_by, members}
+let onlineUsers   = [];         // имена пользователей онлайн прямо сейчас
+let allUsers      = [];         // все зарегистрированные пользователи
+
+// ── WebSocket: подключение и переподключение ──────────
+function connect() {
+  // Выбираем протокол в зависимости от того, открыт ли сайт по HTTPS
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const sock = new WebSocket(`${proto}://${location.host}`);
+  ws = sock;
+
+  sock.onopen = () => {
+    if (ws !== sock) return; // игнорируем старые сокеты при быстром переподключении
+    wsConnected = true;
+    setStatus('Соединено', true);
+  };
+  sock.onclose = () => {
+    if (ws !== sock) return;
+    wsConnected = false;
+    setStatus('Отключено. Переподключение…', false);
+    setTimeout(connect, 3000); // автоматическое переподключение через 3 секунды
+  };
+  sock.onerror = () => {};
+  sock.onmessage = (e) => {
+    if (ws !== sock) return;
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; } // игнорируем невалидный JSON
+    handleMessage(msg);
+  };
+}
+
+// Отправить JSON-объект на сервер
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify(obj));
+}
+
+// ── Диспетчер входящих сообщений ─────────────────────
+// Разбирает поле cmd и направляет обработку в нужную ветку
+function handleMessage(msg) {
+  switch (msg.cmd) {
+
+    // Авторизация прошла успешно
+    case 'auth_ok':
+      myName = msg.username;
+      document.getElementById('my-name').textContent = myName;
+      showScreen('chat');           // переключаемся на экран чата
+      send({ cmd: 'list_users' }); // запрашиваем список пользователей
+      break;
+
+    // Сервер отклонил логин/регистрацию
+    case 'auth_fail':
+      showAuthError(msg.reason || 'Ошибка авторизации');
+      break;
+
+    // Счётчики непрочитанных личных сообщений при входе
+    case 'unread_counts':
+      if (!myName) break;
+      Object.entries(msg.counts || {}).forEach(([sender, count]) => {
+        if (count > 0) { unread[sender] = count; updateUnreadBadge(sender); }
+      });
+      break;
+
+    // Счётчики непрочитанных групповых сообщений при входе
+    case 'group_unread_counts':
+      if (!myName) break;
+      Object.entries(msg.counts || {}).forEach(([gid, count]) => {
+        if (count > 0) { groupUnread[gid] = count; updateGroupUnreadBadge(Number(gid)); }
+      });
+      break;
+
+    // Входящее личное сообщение
+    case 'recv_msg': {
+      if (!myName) break;
+      const peer = (msg.from === myName) ? msg.to : msg.from;
+      if (!peer) break;
+
+      if (peer === chatWith && !chatGroupId && historyLoaded) {
+        // Чат с этим пользователем открыт — отрисовываем сразу
+        appendMessage(msg.from, msg.text, msg.ts);
+        if (msg.from !== myName) send({ cmd: 'mark_read', peer: msg.from });
+      } else {
+        // Чат не открыт — кладём в pending и увеличиваем счётчик
+        if (!pendingMessages[peer]) pendingMessages[peer] = [];
+        pendingMessages[peer].push({ from: msg.from, text: msg.text, ts: msg.ts });
+        if (msg.from !== myName) {
+          unread[peer] = (unread[peer] || 0) + 1;
+          updateUnreadBadge(peer);
+        }
+      }
+      break;
+    }
+
+    // Входящее групповое сообщение
+    case 'recv_group_msg': {
+      if (!myName) break;
+      const gid = msg.group_id;
+      if (chatGroupId === gid && historyLoaded) {
+        // Нужная группа открыта — отрисовываем сразу
+        appendMessage(msg.from, msg.text, msg.ts, true, true);
+        if (msg.from !== myName) send({ cmd: 'mark_group_read', group_id: gid });
+      } else {
+        // Группа не открыта — pending + бейдж
+        if (!pendingGroupMessages[gid]) pendingGroupMessages[gid] = [];
+        pendingGroupMessages[gid].push({ from: msg.from, text: msg.text, ts: msg.ts });
+        if (msg.from !== myName) {
+          groupUnread[gid] = (groupUnread[gid] || 0) + 1;
+          updateGroupUnreadBadge(gid);
+        }
+      }
+      break;
+    }
+
+    // Полный список всех зарегистрированных пользователей с онлайн-статусами
+    case 'all_users_list':
+      if (!myName) break;
+      onlineUsers = (msg.users || []).filter(u => u.online).map(u => u.name);
+      allUsers = msg.users || [];
+      renderUserList(allUsers);
+      // Восстанавливаем бейджи после перерисовки списка
+      Object.entries(unread).forEach(([sender, count]) => {
+        if (count > 0) updateUnreadBadge(sender);
+      });
+      break;
+
+    // Устаревший формат — только онлайн-пользователи (на случай старого сервера)
+    case 'user_list':
+      if (!myName) break;
+      onlineUsers = msg.users || [];
+      renderUserList(onlineUsers.map(u => ({ name: u, online: true })));
+      Object.entries(unread).forEach(([sender, count]) => {
+        if (count > 0) updateUnreadBadge(sender);
+      });
+      break;
+
+    // Список групп пользователя (приходит сразу после авторизации)
+    case 'group_list':
+      if (!myName) break;
+      (msg.groups || []).forEach(g => { groups[g.id] = g; });
+      renderGroupList();
+      break;
+
+    // Уведомление о создании новой группы (рассылается всем участникам)
+    case 'group_created': {
+      if (!myName) break;
+      groups[msg.id] = { id: msg.id, name: msg.name, created_by: msg.created_by, members: msg.members };
+      renderGroupList();
+      appendNotice(`Группа "${msg.name}" создана`);
+      break;
+    }
+
+    // История личной переписки: объединяем с pending-сообщениями
+    case 'history': {
+      if (!myName) break;
+      const dbMsgs = msg.messages || [];
+      const pending = pendingMessages[msg.with] || [];
+      const dbLastTs = dbMsgs.length ? dbMsgs[dbMsgs.length - 1].ts : 0;
+      // Оставляем только те pending, что новее последнего сообщения из БД
+      const fresh = pending.filter(m => m.ts > dbLastTs);
+      messages[msg.with] = [...dbMsgs, ...fresh];
+      pendingMessages[msg.with] = [];
+      if (msg.with === chatWith && !chatGroupId) {
+        historyLoaded = true;
+        renderHistory();
+      }
+      break;
+    }
+
+    // История группового чата: аналогично личному
+    case 'group_history': {
+      if (!myName) break;
+      const gid = msg.group_id;
+      const dbMsgs = msg.messages || [];
+      const pending = pendingGroupMessages[gid] || [];
+      const dbLastTs = dbMsgs.length ? dbMsgs[dbMsgs.length - 1].ts : 0;
+      const fresh = pending.filter(m => m.ts > dbLastTs);
+      groupMessages[gid] = [...dbMsgs, ...fresh];
+      pendingGroupMessages[gid] = [];
+      if (chatGroupId === gid) {
+        historyLoaded = true;
+        renderHistory();
+      }
+      break;
+    }
+
+    // Системное уведомление (вход/выход пользователя)
+    case 'notice':
+      if (myName) {
+        appendNotice(msg.text);
+        send({ cmd: 'list_users' }); // обновляем список (мог измениться онлайн-статус)
+      }
+      break;
+
+    // Ошибка от сервера (например, «Вы не в этой группе»)
+    case 'error':
+      if (myName) appendNotice('⚠ ' + msg.text);
+      break;
+  }
+}
+
+// ── Авторизация ───────────────────────────────────────
+function doLogin()    { auth('login'); }
+function doRegister() { auth('register'); }
+
+function auth(cmd) {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  if (!username || !password) { showAuthError('Введите имя и пароль'); return; }
+  hideAuthError();
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    send({ cmd, username, password });
+  } else {
+    // Соединение ещё не установлено — ждём события open и отправляем тогда
+    setStatus('Подключение…', false);
+    const onOpen = () => { ws.removeEventListener('open', onOpen); send({ cmd, username, password }); };
+    ws.addEventListener('open', onOpen);
+  }
+}
+
+// Выход: очищаем всё состояние и возвращаемся на экран авторизации
+function doLogout() {
+  myName = ''; chatWith = null; chatGroupId = null; historyLoaded = false;
+  messages = {}; pendingMessages = {};
+  groupMessages = {}; pendingGroupMessages = {};
+  unread = {}; groupUnread = {};
+  groups = {}; onlineUsers = []; allUsers = [];
+
+  // Сбрасываем DOM до начального состояния
+  document.getElementById('users-list').innerHTML  = '';
+  document.getElementById('groups-list').innerHTML = '';
+  document.getElementById('messages').innerHTML    =
+    '<div id="empty-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#444;font-size:0.9rem;gap:10px"><div style="font-size:3rem">💬</div><div>Выберите пользователя или группу слева</div></div>';
+  document.getElementById('chat-with-name').textContent = 'Выберите собеседника';
+  document.getElementById('group-members-hint').textContent = '';
+  document.getElementById('msg-input').disabled = true;
+  document.getElementById('send-btn').disabled  = true;
+  showScreen('auth');
+
+  // Закрываем старый сокет и открываем новый
+  const oldSock = ws;
+  ws = null; wsConnected = false;
+  if (oldSock) oldSock.close();
+  connect();
+}
+
+// ── Управление экранами ───────────────────────────────
+// Переключает видимость auth-screen / chat-screen
+function showScreen(name) {
+  document.getElementById('auth-screen').style.display = name === 'auth' ? 'flex' : 'none';
+  document.getElementById('chat-screen').style.display = name === 'chat' ? 'flex' : 'none';
+}
+// Показать ошибку под формой авторизации
+function showAuthError(text) {
+  const el = document.getElementById('auth-error');
+  el.textContent = text; el.style.display = 'block';
+}
+function hideAuthError() { document.getElementById('auth-error').style.display = 'none'; }
+// Обновить строку статуса соединения в нижней части сайдбара
+function setStatus(text, online) {
+  const el = document.getElementById('status-bar');
+  el.textContent = text; el.className = online ? 'status-online' : '';
+}
+
+// ── Список пользователей ──────────────────────────────
+// Перерисовывает весь список (вызывается при получении all_users_list)
+function renderUserList(users) {
+  const list = document.getElementById('users-list');
+  list.innerHTML = '';
+  users.filter(u => u.name !== myName).forEach(u => { // себя не показываем
+    const div = document.createElement('div');
+    div.className = 'list-item' + (u.name === chatWith && !chatGroupId ? ' active' : '');
+    div.dataset.user = u.name; // data-атрибут для updateUnreadBadge
+    const count = unread[u.name] || 0;
+    const dot = u.online
+      ? '<div class="online-dot"></div>'
+      : '<div class="offline-dot"></div>';
+    div.innerHTML = `
+      <div class="avatar">${u.name[0].toUpperCase()}${dot}</div>
+      <span class="item-name">${escHtml(u.name)}</span>
+      ${count > 0 ? `<span class="unread-badge">${count > 99 ? '99+' : count}</span>` : ''}`;
+    div.onclick = () => openChat(u.name);
+    list.appendChild(div);
+  });
+}
+
+// Обновляет бейдж непрочитанных у конкретного пользователя без перерисовки списка
+function updateUnreadBadge(username) {
+  const div = document.querySelector(`[data-user="${CSS.escape(username)}"]`);
+  if (!div) return;
+  const old = div.querySelector('.unread-badge');
+  if (old) old.remove();
+  const count = unread[username] || 0;
+  if (count > 0) {
+    const badge = document.createElement('span');
+    badge.className = 'unread-badge';
+    badge.textContent = count > 99 ? '99+' : count;
+    div.appendChild(badge);
+  }
+}
+
+// ── Список групп ──────────────────────────────────────
+function renderGroupList() {
+  const list = document.getElementById('groups-list');
+  list.innerHTML = '';
+  Object.values(groups).forEach(g => {
+    const div = document.createElement('div');
+    div.className = 'list-item' + (chatGroupId === g.id ? ' active' : '');
+    div.dataset.group = g.id;
+    const count = groupUnread[g.id] || 0;
+    div.innerHTML = `
+      <div class="avatar group-avatar">#</div>
+      <span class="item-name">${escHtml(g.name)}</span>
+      ${count > 0 ? `<span class="unread-badge">${count > 99 ? '99+' : count}</span>` : ''}`;
+    div.onclick = () => openGroupChat(g.id);
+    list.appendChild(div);
+  });
+}
+
+// Обновляет бейдж непрочитанных у конкретной группы
+function updateGroupUnreadBadge(group_id) {
+  const div = document.querySelector(`[data-group="${group_id}"]`);
+  if (!div) return;
+  const old = div.querySelector('.unread-badge');
+  if (old) old.remove();
+  const count = groupUnread[group_id] || 0;
+  if (count > 0) {
+    const badge = document.createElement('span');
+    badge.className = 'unread-badge';
+    badge.textContent = count > 99 ? '99+' : count;
+    div.appendChild(badge);
+  }
+}
+
+// ── Мобильная навигация ───────────────────────────────
+function isMobile() { return window.innerWidth <= 600; }
+
+// При открытии чата на мобильном — прячем сайдбар, показываем чат
+function showChatMobile() {
+  if (!isMobile()) return;
+  document.getElementById('sidebar').classList.add('hidden-mobile');
+  document.getElementById('chat-area').classList.add('visible-mobile');
+}
+
+// Кнопка «Назад» — возвращаемся к списку контактов
+function goBackToSidebar() {
+  document.getElementById('sidebar').classList.remove('hidden-mobile');
+  document.getElementById('chat-area').classList.remove('visible-mobile');
+}
+
+// ── Открыть личный чат ────────────────────────────────
+function openChat(username) {
+  chatWith = username; chatGroupId = null; historyLoaded = false;
+
+  // Сбрасываем счётчик непрочитанных и уведомляем сервер
+  unread[username] = 0;
+  updateUnreadBadge(username);
+  send({ cmd: 'mark_read', peer: username });
+
+  // Снимаем active со всех элементов, ставим на нужный
+  document.querySelectorAll('.list-item').forEach(el => {
+    el.classList.toggle('active',
+      el.dataset.user === username && !el.dataset.group);
+  });
+
+  document.getElementById('chat-with-name').textContent = username;
+  document.getElementById('group-members-hint').textContent = '';
+  document.getElementById('msg-input').disabled = false;
+  document.getElementById('send-btn').disabled  = false;
+  if (!isMobile()) document.getElementById('msg-input').focus();
+  document.getElementById('messages').innerHTML = '';
+
+  send({ cmd: 'history', with: username }); // запросить историю с сервера
+  showChatMobile();
+}
+
+// ── Открыть групповой чат ─────────────────────────────
+function openGroupChat(group_id) {
+  chatWith = null; chatGroupId = group_id; historyLoaded = false;
+
+  groupUnread[group_id] = 0;
+  updateGroupUnreadBadge(group_id);
+  send({ cmd: 'mark_group_read', group_id });
+
+  document.querySelectorAll('.list-item').forEach(el => {
+    el.classList.toggle('active', Number(el.dataset.group) === group_id);
+  });
+
+  const g = groups[group_id];
+  document.getElementById('chat-with-name').textContent = g ? g.name : 'Группа';
+  // Показываем количество участников и их имена в подзаголовке
+  document.getElementById('group-members-hint').textContent =
+    g ? `${g.members.length} участн. · ${g.members.join(', ')}` : '';
+
+  document.getElementById('msg-input').disabled = false;
+  document.getElementById('send-btn').disabled  = false;
+  if (!isMobile()) document.getElementById('msg-input').focus();
+  document.getElementById('messages').innerHTML = '';
+
+  send({ cmd: 'group_history', group_id }); // запросить историю группы
+  showChatMobile();
+}
+
+// ── Отрисовка истории ─────────────────────────────────
+// Полностью перерисовывает ленту сообщений из локального кэша
+function renderHistory() {
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = '';
+
+  const isGroup = chatGroupId !== null;
+  const hist = isGroup ? (groupMessages[chatGroupId] || []) : (messages[chatWith] || []);
+
+  if (hist.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'text-align:center;color:#444;margin-top:40px;font-size:0.85rem';
+    empty.textContent = 'Нет сообщений. Напишите первым!';
+    msgs.appendChild(empty);
+    return;
+  }
+  hist.forEach(m => appendMessage(m.from, m.text, m.ts, false, isGroup));
+  scrollBottom();
+}
+
+// Добавляет одно сообщение в конец ленты
+function appendMessage(from, text, ts, doScroll = true, isGroup = false) {
+  const msgs = document.getElementById('messages');
+  const isMine = from === myName;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + (isMine ? 'mine' : 'theirs');
+
+  // В групповых чатах показываем имя отправителя над чужими сообщениями
+  if (isGroup && !isMine) {
+    const sender = document.createElement('div');
+    sender.className = 'msg-sender';
+    sender.textContent = from;
+    wrap.appendChild(sender);
+  }
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.textContent = text; // textContent защищает от XSS
+
+  const meta = document.createElement('div');
+  meta.className = 'msg-meta';
+  meta.textContent = (isMine ? 'Вы' : from) + ' · ' + formatTime(ts);
+
+  wrap.appendChild(bubble);
+  wrap.appendChild(meta);
+  msgs.appendChild(wrap);
+
+  if (doScroll) scrollBottom();
+}
+
+// Добавляет системное уведомление в ленту (вход/выход пользователя, создание группы)
+function appendNotice(text) {
+  if (document.getElementById('chat-screen').style.display === 'none') return;
+  const msgs = document.getElementById('messages');
+  const el = document.createElement('div');
+  el.className = 'notice';
+  el.textContent = text;
+  msgs.appendChild(el);
+  scrollBottom();
+}
+
+// Прокрутить ленту сообщений вниз
+function scrollBottom() {
+  const msgs = document.getElementById('messages');
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// ── Отправка сообщения ────────────────────────────────
+function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const text  = input.value.trim();
+  if (!text) return;
+
+  // Выбираем команду в зависимости от типа открытого чата
+  if (chatGroupId !== null) {
+    send({ cmd: 'send_group_msg', group_id: chatGroupId, text });
+  } else if (chatWith) {
+    send({ cmd: 'send_msg', to: chatWith, text });
+  } else {
+    return;
+  }
+
+  input.value = '';
+  input.style.height = 'auto'; // сбрасываем высоту textarea
+}
+
+// Обработка нажатий в поле ввода:
+// Enter без Shift — отправить; автоматически растягивает textarea по контенту
+function onInputKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  const ta = document.getElementById('msg-input');
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+}
+
+// ── Создание группы (модальное окно) ─────────────────
+function openCreateGroup() {
+  // Динамически заполняем список чекбоксами из allUsers (кроме себя)
+  const container = document.getElementById('members-checkboxes');
+  container.innerHTML = '';
+  const others = allUsers.filter(u => u.name !== myName);
+  if (others.length === 0) {
+    container.innerHTML = '<div style="padding:10px;color:#555;font-size:0.85rem">Нет других пользователей</div>';
+  } else {
+    others.forEach(u => {
+      const label = document.createElement('label');
+      label.className = 'member-check';
+      const onlineHint = u.online ? ' 🟢' : '';
+      label.innerHTML = `<input type="checkbox" value="${escHtml(u.name)}"> ${escHtml(u.name)}${onlineHint}`;
+      container.appendChild(label);
+    });
+  }
+  document.getElementById('group-name-input').value = '';
+  document.getElementById('modal-error').textContent = '';
+  document.getElementById('modal-create-group').classList.remove('hidden');
+  document.getElementById('group-name-input').focus();
+}
+
+function closeCreateGroup() {
+  document.getElementById('modal-create-group').classList.add('hidden');
+}
+
+function submitCreateGroup() {
+  const name = document.getElementById('group-name-input').value.trim();
+  // Собираем имена отмеченных участников
+  const checked = [...document.querySelectorAll('#members-checkboxes input[type=checkbox]:checked')]
+    .map(el => el.value);
+
+  const errEl = document.getElementById('modal-error');
+  if (!name) { errEl.textContent = 'Введите название группы'; return; }
+  if (checked.length === 0) { errEl.textContent = 'Выберите хотя бы одного участника'; return; }
+
+  send({ cmd: 'create_group', name, members: checked });
+  closeCreateGroup();
+}
+
+// Закрыть модалку при клике на затемнённый оверлей (вне карточки)
+document.getElementById('modal-create-group').addEventListener('click', function(e) {
+  if (e.target === this) closeCreateGroup();
+});
+
+// ── Утилиты ───────────────────────────────────────────
+// Экранирование HTML-спецсимволов для безопасной вставки в innerHTML
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+// Форматирование Unix-timestamp в строку «ЧЧ:ММ»
+function formatTime(ts) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Enter в поле пароля — сразу войти; Tab из логина — перейти к паролю
+document.getElementById('password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('username').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('password').focus();
+});
+
+// ── Запуск ────────────────────────────────────────────
+connect(); // устанавливаем WebSocket-соединение при загрузке страницы
+</script>
+</body>
+</html>
